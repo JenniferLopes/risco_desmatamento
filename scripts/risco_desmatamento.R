@@ -33,7 +33,8 @@ pacman::p_load(
   tibble,
   stringr,
   readr,
-  htmltools)
+  htmltools,
+  usethis)
 
 # Paleta de cores para mapas
 CORES_MAPA <- list(
