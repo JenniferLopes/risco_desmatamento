@@ -1,0 +1,289 @@
+---
+title: "Análise de Desmatamento e Produção Agrícola no Brasil"
+subtitle: "Período 2015-2021"
+author: "Jennifer Luz Lopes"
+date: today
+format:
+  html:
+    toc: true
+    toc-depth: 3
+    toc-location: left
+    number-sections: true
+    code-fold: true
+    code-summary: "Mostrar código"
+    theme: cosmo
+    highlight-style: github
+    fig-width: 10
+    fig-height: 6
+    fig-align: center
+    embed-resources: true
+---
+
+# Introdução
+
+Este relatório apresenta uma análise integrada entre produção agrícola e desmatamento em municípios brasileiros no período de 2015 a 2021. O estudo utiliza dados oficiais do IBGE (Produção Agrícola Municipal - PAM) e INPE (Programa de Monitoramento da Amazônia - PRODES) para identificar padrões espaciais e temporais da relação entre expansão agrícola e perda de vegetação nativa.
+
+## Objetivos
+
+-   Quantificar a relação entre produção agrícola (soja, milho, arroz) e desmatamento
+-   Identificar municípios com maior risco ambiental
+-   Desenvolver modelo preditivo para desmatamento
+-   Mapear espacialmente padrões de eficiência produtiva
+
+## Metodologia
+
+A análise integrou duas bases de dados principais através do BigQuery:
+
+-   **PAM/IBGE**: Produção agrícola municipal de culturas temporárias
+-   **PRODES/INPE**: Monitoramento de desmatamento por município e bioma
+
+Foi desenvolvido um indicador de risco (`risco_desmat_ton`) que mede hectares de desmatamento por tonelada produzida, permitindo classificar municípios em três categorias: Baixo, Médio e Alto risco.
+
+# Análise descritiva
+
+## Visão geral dos dados
+
+```{r}
+#| label: load-data
+#| message: false
+#| warning: false
+
+library(readr)
+library(dplyr)
+library(knitr)
+library(ggplot2)
+library(scales)
+
+# Carregar dados processados
+df_completo <- read_csv("outputs/tables/dataset_integrado.csv", show_col_types = FALSE)
+analise_risco <- read_csv("outputs/tables/analise_descritiva_por_risco.csv", show_col_types = FALSE)
+analise_temporal <- read_csv("outputs/tables/analise_descritiva_temporal.csv", show_col_types = FALSE)
+metricas <- read_csv("outputs/tables/metricas_modelo.csv", show_col_types = FALSE)
+relatorio <- read_csv("outputs/tables/relatorio_execucao.csv", show_col_types = FALSE)
+```
+
+O dataset final integrado contém **`r format(nrow(df_completo), big.mark = ".")`** observações de **`r format(n_distinct(df_completo$id_municipio), big.mark = ".")`** municípios brasileiros ao longo de **`r max(df_completo$ano) - min(df_completo$ano) + 1`** anos (2015-2021).
+
+```{r}
+#| message: false
+#| warning: false
+#| label: tbl-resumo-execucao
+#| tbl-cap: "Resumo da Execução do Projeto"
+
+relatorio %>%
+  kable(col.names = c("Item", "Valor"),
+        align = c("l", "r"))
+```
+
+## Distribuição por classe de risco
+
+```{r}
+#| message: false
+#| warning: false
+#| label: tbl-analise-risco
+#| tbl-cap: "Estatísticas Descritivas por Classe de Risco"
+
+analise_risco %>%
+  mutate(
+    desmat_medio = format(round(desmat_medio, 0), big.mark = "."),
+    desmat_mediano = format(round(desmat_mediano, 0), big.mark = "."),
+    producao_media = format(round(producao_media / 1000, 1), big.mark = ".", decimal.mark = ","),
+    producao_mediana = format(round(producao_mediana / 1000, 1), big.mark = ".", decimal.mark = ","),
+    area_media = format(round(area_media, 0), big.mark = "."),
+    produtividade_media = format(round(produtividade_media, 2), decimal.mark = ",")) %>%
+  kable(
+    col.names = c(
+      "Classe de Risco",
+      "Nº Municípios",
+      "Nº Observações",
+      "Desmat. Médio (ha)",
+      "Desmat. Mediano (ha)",
+      "Produção Média (mil ton)",
+      "Produção Mediana (mil ton)",
+      "Área Média (ha)",
+      "Produtividade Média (ton/ha)"),
+    align = c("l", rep("r", 8)))
+```
+
+### Principais resultados
+
+A classificação dos municípios revelou que:
+
+-   **Municípios de Alto Risco** apresentam desmatamento médio de **`r format(round(analise_risco$desmat_medio[3], 0), big.mark = ".")`** hectares, significativamente superior às demais categorias
+-   A produção média não necessariamente se correlaciona com maior desmatamento - municípios de Baixo Risco ainda produzem em média **`r format(round(analise_risco$producao_media[1] / 1000, 1), big.mark = ".", decimal.mark = ",")`** mil toneladas
+-   Existe variação substancial na eficiência produtiva: alguns municípios conseguem produzir mais com menor impacto ambiental
+
+# Evolução temporal
+
+```{r}
+#| message: false
+#| warning: false
+#| label: fig-evolucao-temporal
+#| fig-cap: "Evolução do Desmatamento e Produção Agrícola (2015-2021)"
+#| fig-height: 5
+
+# Normalizar valores para mesma escala
+df_norm <- analise_temporal %>%
+  mutate(
+    desmat_norm = (desmatamento_total - min(desmatamento_total)) / 
+                  (max(desmatamento_total) - min(desmatamento_total)) * 100,
+    prod_norm = (producao_total - min(producao_total)) / 
+                (max(producao_total) - min(producao_total)) * 100) %>%
+  select(ano, desmat_norm, prod_norm) %>%
+  tidyr::pivot_longer(
+    cols = c(desmat_norm, prod_norm),
+    names_to = "variavel",
+    values_to = "valor") %>%
+  mutate(
+    variavel = recode(
+      variavel,
+      desmat_norm = "Desmatamento",
+      prod_norm = "Produção Agrícola"))
+
+ggplot(df_norm, aes(x = ano, y = valor, color = variavel)) +
+  geom_line(linewidth = 1.3) +
+  geom_point(size = 3.5) +
+  scale_color_manual(
+    values = c("Desmatamento" = "#7F1D1D", "Produção Agrícola" = "#3A5FA8"),
+    name = NULL) +
+  scale_x_continuous(breaks = seq(2015, 2021, 1)) +
+  scale_y_continuous(labels = label_number(suffix = "%")) +
+  labs(
+    title = "Evolução Temporal: Desmatamento x Produção Agrícola",
+    subtitle = "Valores normalizados (0-100%)",
+    x = "Ano",
+    y = "Índice Normalizado",
+    caption = "Fonte: IBGE/PAM e INPE/PRODES") +
+  theme_classic(base_size = 13) +
+  theme(
+    plot.title = element_text(face = "bold", size = 15),
+    legend.position = c(0.85, 0.15),
+    legend.background = element_rect(fill = "white", color = "gray80"),
+    legend.text = element_text(size = 11),
+    panel.grid.minor = element_blank())
+```
+
+## Interpretação
+
+A série temporal revela que, embora a produção agrícola tenha crescido consistentemente no período, o desmatamento apresenta maior volatilidade. Destaca-se uma redução no desmatamento entre 2019-2020, seguida de nova elevação em 2021.
+
+# Modelagem preditiva
+
+## Modelo Random Forest
+
+Foi desenvolvido um modelo de Random Forest para predizer o desmatamento municipal com base em variáveis de produção agrícola, uso do solo e histórico de desmatamento.
+
+As variáveis mais importantes para predição do desmatamento são:
+
+1.  **Desmatamento defasado (lag1 e lag2)**: O histórico recente é o melhor preditor
+2.  **Produção total**: Forte associação com expansão de área
+3.  **Pressão sobre vegetação**: Razão entre área cultivada e vegetação remanescente
+4.  **Área colhida**: Indicador direto de expansão agrícola
+
+### Performance do modelo
+
+```{r}
+#| message: false
+#| warning: false
+#| label: tbl-metricas
+#| tbl-cap: "Métricas de Avaliação do Modelo"
+
+metricas %>%
+  mutate(across(where(is.numeric), ~format(round(., 2), decimal.mark = ","))) %>%
+  tidyr::pivot_longer(cols = everything(), names_to = "Métrica", values_to = "Valor") %>%
+  kable(align = c("l", "r"))
+```
+
+O modelo apresenta:
+
+-   **R² = `r metricas$R2`**: Explica aproximadamente `r round(metricas$R2 * 100)`% da variação no desmatamento
+-   **MAE = `r format(metricas$MAE, big.mark = ".")`** hectares: Erro médio absoluto moderado
+-   **MAPE = `r format(metricas$MAPE, decimal.mark = ",")`%**: Erro percentual médio aceitável
+
+# Análise espacial
+
+## Relação Produção × Desmatamento
+
+```{r}
+#| label: fig-scatter
+#| fig-cap: "Relação entre Produção Agrícola e Desmatamento por Classe de Risco"
+#| out-width: "100%"
+
+knitr::include_graphics("outputs/figures/grafico_2_scatter.png")
+```
+
+O gráfico de dispersão revela:
+
+-   **Heterogeneidade**: Municípios com produção similar apresentam níveis muito distintos de desmatamento
+-   **Clusters de risco**: Municípios de Alto Risco (vermelho) tendem a ter maior desmatamento mesmo com produção moderada
+-   **Oportunidades**: Existem municípios de alta produção com baixo desmatamento relativo
+
+## Mapas interativos
+
+Foram gerados quatro mapas interativos para exploração espacial dos dados:
+
+### Mapa 1: 50 Municípios com maior desmatamento (2021)
+
+Identifica os municípios críticos que concentram o maior desmatamento absoluto, classificados por categoria de risco.
+
+**Arquivo**: `outputs/maps/mapa_1_top_risco.html`
+
+### Mapa 2: Intensidade de desmatamento
+
+Mapa coroplético mostrando a distribuição espacial da intensidade de desmatamento nos municípios acima do percentil 70.
+
+**Arquivo**: `outputs/maps/mapa_2_intensidade.html`
+
+### Mapa 3: Eficiência produtiva
+
+Classifica municípios em quatro categorias de eficiência com base na relação desmatamento/produção, destacando os maiores produtores em cada categoria.
+
+**Arquivo**: `outputs/maps/mapa_3_eficiencia.html`
+
+### Mapa 4: Análise por Estado
+
+Visão agregada estadual combinando intensidade de desmatamento (cor dos polígonos) com volume de produção (tamanho dos círculos).
+
+**Arquivo**: `outputs/maps/mapa_4_estados.html`
+
+# Considerações finais
+
+1.  **Heterogeneidade Regional**: A relação entre produção agrícola e desmatamento varia substancialmente entre municípios, indicando que fatores locais (governança, fiscalização, tecnologia) são determinantes
+
+2.  **Eficiência é Possível**: Existem municípios de alta produção com baixo desmatamento relativo, demonstrando que produção e conservação não são necessariamente incompatíveis
+
+3.  **Histórico Importa**: O desmatamento passado é o melhor preditor do desmatamento futuro, sugerindo necessidade de intervenção em municípios com trajetória crítica
+
+4.  **Padrões Espaciais**: O desmatamento se concentra em regiões específicas, permitindo priorização geográfica de políticas públicas
+
+## Recomendações
+
+-   **Políticas Diferenciadas**: Municípios de Alto Risco necessitam intervenções mais intensivas
+-   **Disseminação de Boas Práticas**: Estudar e replicar estratégias de municípios eficientes
+-   **Monitoramento Contínuo**: Acompanhar municípios com histórico crítico e sinais de expansão
+-   **Incentivos à Intensificação**: Promover aumento de produtividade em áreas já consolidadas
+
+## Limitações e próximos passos
+
+**Limitações**:
+
+-   Análise limitada ao período 2015-2021
+-   Não considera outros fatores como pecuária, mineração e infraestrutura
+-   Agregação municipal pode ocultar heterogeneidade interna
+
+**Próximos passos**:
+
+-   Incorporar dados de crédito rural e fiscalização ambiental
+-   Análise de trajetórias individuais de municípios
+-   Modelagem com variáveis climáticas e econômicas
+-   Desenvolvimento de sistema de alerta precoce
+
+# Referências
+
+-   **IBGE**: Produção Agrícola Municipal (PAM)
+-   **INPE**: Programa de Monitoramento do Desmatamento na Amazônia Legal (PRODES)
+-   **Base dos Dados**: Plataforma de integração de dados públicos brasileiros
+
+------------------------------------------------------------------------
+
+**Código completo**: Disponível no script R: **`risco_desmatamento.R`**

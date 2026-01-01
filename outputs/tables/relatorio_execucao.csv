@@ -1,0 +1,9 @@
+Item,Valor
+Observações no dataset,30.554
+Municípios únicos,5.277
+Período analisado,2016-2021
+Features utilizadas,9
+MAE (hectares),"8,09"
+RMSE (hectares),"92,95"
+R² do modelo,0.992
+MAPE (%),"1,1"
