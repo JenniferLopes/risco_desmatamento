@@ -1,9 +1,3 @@
----
-editor_options: 
-  markdown: 
-    wrap: 72
----
-
 # Análise de Desmatamento e Produção Agrícola no Brasil (2015-2021)
 
 ## Contextualização
