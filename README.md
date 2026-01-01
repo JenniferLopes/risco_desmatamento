@@ -2,6 +2,8 @@
 
 ## Contextualização
 
+Obs: Desenvolvi esse trabalho em 2024, mas não havia publicado para rede. Pretendo ampliar as análises, culturas e anos.
+
 Este projeto analisa a relação entre produção agrícola das principais
 culturas brasileiras (soja, milho e arroz) e o desmatamento em
 municípios do país. A análise integra dados oficiais do IBGE e INPE para
