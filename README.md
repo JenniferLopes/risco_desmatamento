@@ -1,12 +1,8 @@
----
-editor_options: 
-  markdown: 
-    wrap: 72
----
-
 # Análise de Desmatamento e Produção Agrícola no Brasil (2015-2021)
 
 ## Contextualização
+
+Obs: Desenvolvi esse trabalho em 2024, mas não havia publicado para rede. Pretendo ampliar as análises, culturas e anos.
 
 Este projeto analisa a relação entre produção agrícola das principais
 culturas brasileiras (soja, milho e arroz) e o desmatamento em
