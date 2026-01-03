@@ -462,7 +462,6 @@ if (!dir.exists("outputs/maps")) dir.create("outputs/maps")
 ano_ref <- 2021
 n_top  <- 50
 
-
 # Mapa 1: Municípios com maior desmatamento -------------------------------
 
 top_municipios <- df_completo |>
@@ -531,6 +530,56 @@ htmlwidgets::saveWidget(
   mapa_top_risco,
   "outputs/maps/mapa_1_top_risco.html",
   selfcontained = TRUE)
+
+
+# Mapa 1.1 estático
+
+# Seleção dosmunicípios 
+top_municipios <- df_completo |>
+  filter(ano == ano_ref) |>
+  arrange(desc(desmatamento_ha)) |>
+  slice_head(n = n_top) |>
+  mutate(id_municipio = as.character(id_municipio))
+
+# Base espacial – TODOS os municípios do Brasil
+municipios_sf <- suppressMessages(
+  geobr::read_municipality(year = 2020, showProgress = FALSE)) |>
+  mutate(id_municipio = as.character(code_muni))
+
+# Join dos dados (SEM FILTRAR o mapa)
+municipios_sf <- municipios_sf |>
+  left_join(top_municipios, by = "id_municipio")
+
+# Mapa estático
+mapa_top_risco_static <- ggplot(municipios_sf) +
+  geom_sf(
+    aes(fill = classe_risco),
+    color = "white",
+    linewidth = 0.1,
+    na.rm = FALSE) +
+  scale_fill_manual(
+    values = c(
+      "Baixo" = CORES_MAPA$verde_floresta,
+      "Medio" = CORES_MAPA$amarelo_queimado,
+      "Alto"  = CORES_MAPA$vermelho_escuro),
+    na.value = "grey90",
+    name = "Classe de risco") +
+  labs(
+    title = "Municípios com maior desmatamento",
+    subtitle = paste0("Top ", n_top, " municípios – ", ano_ref),
+    caption = "Fonte: IBGE (PAM) e INPE (PRODES)") +
+  coord_sf(expand = FALSE) +
+  theme_minimal(base_size = 13) +
+  theme(
+    legend.position = "right",
+    plot.title = element_text(face = "bold"),
+    plot.subtitle = element_text(size = 11),
+    axis.text = element_blank(),
+    axis.title = element_blank(),
+    panel.grid = element_blank())
+
+# Plot
+mapa_top_risco_static
 
 # Mapa 2: Intensidade de desmatamento (coroplético) -----------------------
 
@@ -602,6 +651,77 @@ htmlwidgets::saveWidget(
   mapa_intensidade,
   "outputs/maps/mapa_2_intensidade.html",
   selfcontained = TRUE)
+
+
+# Mapa 2.1 estático
+
+# Parâmetros 
+ano_ref       <- 2021
+percentil_min <- 0.70
+
+# Agregação dos dados
+dados_mapa2 <- df_completo |>
+  filter(ano == ano_ref) |>
+  group_by(id_municipio, sigla_uf) |>
+  summarise(
+    desmatamento_ha     = sum(desmatamento_ha, na.rm = TRUE),
+    producao_total_ton  = sum(producao_total_ton, na.rm = TRUE),
+    risco_desmat_ton    = mean(risco_desmat_ton, na.rm = TRUE),
+    .groups = "drop")
+
+# Percentil de corte
+limiar_desmat <- quantile(dados_mapa2$desmatamento_ha, percentil_min, na.rm = TRUE)
+
+# Base espacial – TODOS os municípios 
+municipios_sf2 <- suppressMessages(
+  geobr::read_municipality(year = 2020, showProgress = FALSE)) |>
+  mutate(id_municipio = as.character(code_muni)) |>
+  left_join(dados_mapa2, by = "id_municipio") |>
+  mutate(
+    destaque = if_else(desmatamento_ha >= limiar_desmat, "Acima do percentil", "Demais"))
+
+# 5) Mapa estático -----------------------------------------------------
+mapa_intensidade_static <- ggplot(municipios_sf2) +
+  
+  # Brasil inteiro como contexto
+  geom_sf(
+    aes(fill = desmatamento_ha),
+    color = "white",
+    linewidth = 0.08) +
+  
+  scale_fill_gradientn(
+    colors = c(
+      CORES_MAPA$amarelo_queimado,
+      CORES_MAPA$marrom_terra,
+      CORES_MAPA$vermelho_escuro),
+    values = rescale(c(limiar_desmat, max(municipios_sf2$desmatamento_ha, na.rm = TRUE))),
+    na.value = "grey90",
+    name = "Desmatamento (ha)",
+    labels = label_number(big.mark = ".", decimal.mark = ",")) +
+  
+  labs(
+    title = "Intensidade de Desmatamento por Município",
+    subtitle = paste0(
+      "Municípios acima do percentil ",
+      percentil_min * 100,
+      " – ",
+      ano_ref),
+    caption = "Fonte: IBGE (PAM) e INPE (PRODES)") +
+  
+  coord_sf(expand = FALSE) +
+  
+  theme_minimal(base_size = 13) +
+  theme(
+    legend.position = "right",
+    plot.title = element_text(face = "bold"),
+    plot.subtitle = element_text(size = 11),
+    axis.text = element_blank(),
+    axis.title = element_blank(),
+    panel.grid = element_blank())
+
+# Plot
+mapa_intensidade_static
+
 
 # Mapa 3: Eficiência produtiva (risco/produção) ---------------------------
 
@@ -696,6 +816,97 @@ htmlwidgets::saveWidget(
   selfcontained = TRUE)
 
 
+
+# Mapa 3.1 estático
+
+# Parâmetros 
+ano_ref          <- 2021
+prod_min         <- 1000
+n_por_categoria  <- 30
+
+# Cálculo da eficiência
+dados_eficiencia <- df_completo |>
+  filter(
+    ano == ano_ref,
+    producao_total_ton > prod_min,
+    desmatamento_ha > 0) |>
+  group_by(id_municipio, sigla_uf) |>
+  summarise(
+    desmatamento_ha    = sum(desmatamento_ha, na.rm = TRUE),
+    producao_total_ton = sum(producao_total_ton, na.rm = TRUE),
+    risco_desmat_ton   = mean(risco_desmat_ton, na.rm = TRUE),
+    .groups = "drop") |>
+  mutate(
+    categoria_eficiencia = case_when(
+      risco_desmat_ton < quantile(risco_desmat_ton, 0.25, na.rm = TRUE) ~ "Muito Eficiente",
+      risco_desmat_ton < quantile(risco_desmat_ton, 0.50, na.rm = TRUE) ~ "Eficiente",
+      risco_desmat_ton < quantile(risco_desmat_ton, 0.75, na.rm = TRUE) ~ "Ineficiente",
+      TRUE ~ "Muito Ineficiente"),
+    categoria_eficiencia = factor(
+      categoria_eficiencia,
+      levels = c(
+        "Muito Eficiente",
+        "Eficiente",
+        "Ineficiente",
+        "Muito Ineficiente")))
+
+# Amostra por categoria 
+set.seed(123)
+
+amostra_municipios <- dados_eficiencia |>
+  group_by(categoria_eficiencia) |>
+  slice_max(order_by = producao_total_ton, n = n_por_categoria) |>
+  ungroup() |>
+  mutate(id_municipio = as.character(id_municipio))
+
+# Base espacial – TODOS os municípios
+municipios_sf3 <- suppressMessages(
+  geobr::read_municipality(year = 2020, showProgress = FALSE)) |>
+  mutate(id_municipio = as.character(code_muni)) |>
+  left_join(amostra_municipios, by = "id_municipio")
+
+# Mapa estático
+mapa_eficiencia_static <- ggplot(municipios_sf3) +
+  
+  geom_sf(
+    aes(fill = categoria_eficiencia),
+    color = "white",
+    linewidth = 0.1) +
+  
+  scale_fill_manual(
+    values = c(
+      "Muito Eficiente"   = CORES_MAPA$verde_floresta,
+      "Eficiente"         = CORES_MAPA$verde_seco,
+      "Ineficiente"       = CORES_MAPA$amarelo_queimado,
+      "Muito Ineficiente" = CORES_MAPA$vermelho_escuro),
+    na.value = "grey90",
+    name = "Eficiência produtiva") +
+  
+  labs(
+    title = "Eficiência Produtiva dos Municípios",
+    subtitle = paste0(
+      "Relação desmatamento / produção – ",
+      ano_ref,
+      " | Amostra: ",
+      n_por_categoria,
+      " municípios por categoria"),
+    caption = "Fonte: IBGE (PAM) e INPE (PRODES)") +
+  
+  coord_sf(expand = FALSE) +
+  
+  theme_minimal(base_size = 13) +
+  theme(
+    legend.position = "right",
+    plot.title = element_text(face = "bold"),
+    plot.subtitle = element_text(size = 11),
+    axis.text = element_blank(),
+    axis.title = element_blank(),
+    panel.grid = element_blank())
+
+# Plot 
+mapa_eficiencia_static
+
+
 # Mapa 4: Análise por Estado ----------------------------------------------
 
 dados_uf <- df_completo |>
@@ -780,6 +991,89 @@ htmlwidgets::saveWidget(
   selfcontained = TRUE)
 
 
+# Mapa 4.1 estático
+
+# Parâmetros
+ano_ref <- 2021
+
+# Agregação por UF 
+dados_uf <- df_completo |>
+  filter(ano == ano_ref) |>
+  group_by(sigla_uf) |>
+  summarise(
+    producao_total     = sum(producao_total_ton, na.rm = TRUE),
+    desmatamento_total = sum(desmatamento_ha, na.rm = TRUE),
+    n_municipios       = n_distinct(id_municipio),
+    risco_medio        = mean(risco_desmat_ton, na.rm = TRUE),
+    .groups = "drop") |>
+  mutate(
+    producao_milhoes_ton = producao_total / 1e6,
+    intensidade_desmat  = desmatamento_total / (producao_total / 1000))
+
+# Base espacial – Estados
+estados_sf <- suppressMessages(
+  geobr::read_state(year = 2020, showProgress = FALSE)) |>
+  left_join(dados_uf, by = c("abbrev_state" = "sigla_uf"))
+
+# Centroides para pontos de produção
+centroides <- estados_sf |>
+  st_centroid() |>
+  filter(!is.na(producao_total))
+
+# Mapa estático
+mapa_estados_static <- ggplot(estados_sf) +
+  
+  # Estados coloridos pela intensidade
+  geom_sf(
+    aes(fill = intensidade_desmat),
+    color = "white",
+    linewidth = 0.2) +
+  
+  # Pontos proporcionais à produção
+  geom_sf(
+    data = centroides,
+    aes(size = producao_milhoes_ton),
+    color = CORES_GRAFICO$azul_claro,
+    fill  = CORES_GRAFICO$azul_medio,
+    shape = 21,
+    alpha = 0.7,
+    stroke = 0.8) +
+  
+  scale_fill_gradientn(
+    colors = c(
+      CORES_MAPA$verde_floresta,
+      CORES_MAPA$amarelo_queimado,
+      CORES_MAPA$marrom_terra,
+      CORES_MAPA$vermelho_escuro),
+    na.value = "grey90",
+    name = "Intensidade de desmatamento\n(ha / mil ton)",
+    labels = label_number(decimal.mark = ",", big.mark = ".")) +
+  
+  scale_size_continuous(
+    range = c(3, 12),
+    name = "Produção\n(milhões ton)") +
+  
+  labs(
+    title = "Produção e Desmatamento por Estado",
+    subtitle = paste0(
+      "Cor: intensidade de desmatamento | Tamanho: volume de produção – ",
+      ano_ref
+    ),
+    caption = "Fonte: IBGE (PAM) e INPE (PRODES)") +
+  
+  coord_sf(expand = FALSE) +
+  
+  theme_minimal(base_size = 13) +
+  theme(
+    legend.position = "right",
+    plot.title = element_text(face = "bold"),
+    plot.subtitle = element_text(size = 11),
+    axis.text = element_blank(),
+    axis.title = element_blank(),
+    panel.grid = element_blank())
+
+# Plot
+mapa_estados_static
 
 # 8. Exportações dos resultados -------------------------------------------
 
@@ -854,3 +1148,50 @@ readr::write_csv(
   relatorio_final,
   "outputs/tables/relatorio_execucao.csv")
 view(relatorio_final)
+
+
+# Mapas estáticos ---------------------------------------------------------
+
+# Diretório
+dir.create("outputs/maps_estaticos", recursive = TRUE, showWarnings = FALSE)
+
+# Parâmetros
+largura  <- 12   # polegadas
+altura   <- 8
+dpi_plot <- 300  # padrão artigo / relatório
+
+# 1) Mapa 1.1 – Top municípios
+ggsave(
+  filename = "outputs/maps_estaticos/mapa_1_top_municipios_desmatamento.png",
+  plot     = mapa_top_risco_static,
+  width    = largura,
+  height   = altura,
+  dpi      = dpi_plot,
+  bg       = "white")
+
+# 2) Mapa 2.1 – Intensidade de desmatamento
+ggsave(
+  filename = "outputs/maps_estaticos/mapa_2_intensidade_desmatamento.png",
+  plot     = mapa_intensidade_static,
+  width    = largura,
+  height   = altura,
+  dpi      = dpi_plot,
+  bg       = "white")
+
+# 3) Mapa 3.1 – Eficiência produtiva
+ggsave(
+  filename = "outputs/maps_estaticos/mapa_3_eficiencia_produtiva.png",
+  plot     = mapa_eficiencia_static,
+  width    = largura,
+  height   = altura,
+  dpi      = dpi_plot,
+  bg       = "white")
+
+# 4) Mapa 4.1 – Produção e desmatamento por estado -----------------------
+ggsave(
+  filename = "outputs/maps_estaticos/mapa_4_producao_desmatamento_estados.png",
+  plot     = mapa_estados_static,
+  width    = largura,
+  height   = altura,
+  dpi      = dpi_plot,
+  bg       = "white")

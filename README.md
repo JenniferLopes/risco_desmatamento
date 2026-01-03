@@ -26,6 +26,17 @@ risco ambiental e desenvolver modelos preditivos.
     desmatamento
 -   Identificar variáveis-chave que mais contribuem para o desmatamento
 
+## Relatório com os principais resultados
+
+Pessoal, sempre gosto de construir os **scripts.R** e um
+**relatório.qmd** nos meus projetos.
+
+1.  Vocês podem acessar o relatório em HTML
+    [**`aqui`**](https://jenniferlopes.quarto.pub/analisedesmatamento/).
+
+2.  Repositório completo no
+    [**`GitHub`**](https://github.com/JenniferLopes/risco_desmatamento).
+
 ## Fontes de dados
 
 **Produção Agrícola Municipal (PAM) - IBGE:**
@@ -74,7 +85,7 @@ o período de 2015 a 2021.
 ### 3. Modelagem preditiva
 
 -   **Divisão temporal:** treino (2015-2019), validação (2020), teste
-    (2021)
+    (2021) 
 -   **Algoritmo:** Random Forest com 300 árvores
 -   **Features:** 9 variáveis selecionadas (produção, área,
     produtividade, histórico de desmatamento, etc.)
